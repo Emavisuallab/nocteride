@@ -42,3 +42,5 @@ next-env.d.ts
 supabase.txt
 .env.local
 supabase.txt
+
+.vercel
