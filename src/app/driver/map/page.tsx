@@ -2,12 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { FIXED_LOCATIONS, MAPBOX_STYLE } from '@/lib/constants'
+import { FIXED_LOCATIONS, MAPBOX_STYLE, MAPBOX_TOKEN } from '@/lib/constants'
 import Button from '@/components/ui/Button'
 import { useToast } from '@/components/ui/Toast'
 import { format } from 'date-fns'
-
-const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
 type GpsStatus = 'checking' | 'prompting' | 'active' | 'denied' | 'unavailable'
 
 export default function DriverMapPage() {
@@ -67,7 +65,7 @@ export default function DriverMapPage() {
         const mapboxgl = (await import('mapbox-gl')).default
         if (cancelled || !mapContainer.current) return
 
-        mapboxgl.accessToken = TOKEN
+        mapboxgl.accessToken = MAPBOX_TOKEN
         const map = new mapboxgl.Map({
           container: mapContainer.current,
           style: MAPBOX_STYLE,

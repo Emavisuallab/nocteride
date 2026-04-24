@@ -18,6 +18,8 @@ export const FIXED_LOCATIONS = {
 
 export const SERVICE_AMOUNT = 45000
 
+export const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
+
 export const MAPBOX_STYLE = 'mapbox://styles/mapbox/navigation-night-v1'
 
 export const formatCOP = (amount: number) =>

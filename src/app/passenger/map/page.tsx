@@ -2,12 +2,11 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { FIXED_LOCATIONS, MAPBOX_STYLE } from '@/lib/constants'
+import { FIXED_LOCATIONS, MAPBOX_STYLE, MAPBOX_TOKEN } from '@/lib/constants'
 import { format } from 'date-fns'
 
 const PICKUP = FIXED_LOCATIONS.pickup
 const HOME = FIXED_LOCATIONS.passengerHome
-const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
 
 export default function PassengerMapPage() {
   const mapContainer = useRef<HTMLDivElement>(null)
@@ -36,7 +35,7 @@ export default function PassengerMapPage() {
 
         if (cancelled || !mapContainer.current) return
 
-        mapboxgl.accessToken = TOKEN
+        mapboxgl.accessToken = MAPBOX_TOKEN
 
         const map = new mapboxgl.Map({
           container: mapContainer.current,
