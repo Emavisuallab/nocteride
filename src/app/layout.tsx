@@ -36,6 +36,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es" className={`${plusJakarta.variable} h-full`}>
+      <head>
+        <link href="https://api.mapbox.com/mapbox-gl-js/v3.4.0/mapbox-gl.css" rel="stylesheet" />
+      </head>
       <body className="min-h-full flex flex-col font-sans">
         <ToastProvider>
           {children}

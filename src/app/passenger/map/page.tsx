@@ -33,7 +33,6 @@ export default function PassengerMapPage() {
     async function initMap() {
       try {
         const mapboxgl = (await import('mapbox-gl')).default
-        await import('mapbox-gl/dist/mapbox-gl.css')
 
         if (cancelled || !mapContainer.current) return
 

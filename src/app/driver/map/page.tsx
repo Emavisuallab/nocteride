@@ -65,7 +65,6 @@ export default function DriverMapPage() {
     async function init() {
       try {
         const mapboxgl = (await import('mapbox-gl')).default
-        await import('mapbox-gl/dist/mapbox-gl.css')
         if (cancelled || !mapContainer.current) return
 
         mapboxgl.accessToken = TOKEN
