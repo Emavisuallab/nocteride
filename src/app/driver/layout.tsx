@@ -1,11 +1,12 @@
 import BottomNav from '@/components/BottomNav'
-import { HomeIcon, CalendarIcon, MapIcon, WalletIcon } from '@/components/icons'
+import { HomeIcon, CalendarIcon, MapIcon, WalletIcon, PersonIcon } from '@/components/icons'
 
 const driverNav = [
   { href: '/driver', label: 'Inicio', icon: <HomeIcon /> },
   { href: '/driver/agenda', label: 'Agenda', icon: <CalendarIcon /> },
   { href: '/driver/map', label: 'Mapa', icon: <MapIcon /> },
   { href: '/driver/earnings', label: 'Cobros', icon: <WalletIcon /> },
+  { href: '/driver/profile', label: 'Perfil', icon: <PersonIcon /> },
 ]
 
 export default function DriverLayout({ children }: { children: React.ReactNode }) {

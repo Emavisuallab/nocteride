@@ -1,11 +1,12 @@
 import BottomNav from '@/components/BottomNav'
-import { HomeIcon, CalendarIcon, MapIcon, WalletIcon } from '@/components/icons'
+import { HomeIcon, CalendarIcon, MapIcon, WalletIcon, PersonIcon } from '@/components/icons'
 
 const passengerNav = [
   { href: '/passenger', label: 'Inicio', icon: <HomeIcon /> },
   { href: '/passenger/calendar', label: 'Calendario', icon: <CalendarIcon /> },
   { href: '/passenger/map', label: 'Mapa', icon: <MapIcon /> },
   { href: '/passenger/payments', label: 'Pagos', icon: <WalletIcon /> },
+  { href: '/passenger/profile', label: 'Perfil', icon: <PersonIcon /> },
 ]
 
 export default function PassengerLayout({ children }: { children: React.ReactNode }) {

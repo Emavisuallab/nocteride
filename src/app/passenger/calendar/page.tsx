@@ -36,6 +36,42 @@ const statusLabels: Record<string, string> = {
   cancelled: 'Cancelado',
 }
 
+const picoYPlacaData: Record<number, { day: string; plates: string }> = {
+  1: { day: 'Lunes', plates: '1 y 7' },
+  2: { day: 'Martes', plates: '0 y 3' },
+  3: { day: 'Miércoles', plates: '4 y 6' },
+  4: { day: 'Jueves', plates: '5 y 9' },
+  5: { day: 'Viernes', plates: '2 y 8' },
+}
+
+function PicoYPlacaCard() {
+  const today = new Date()
+  const dayOfWeek = today.getDay()
+  const restriction = picoYPlacaData[dayOfWeek]
+
+  return (
+    <div className="mt-6 bg-[#1A1A2E] rounded-2xl p-4 flex items-center gap-3">
+      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-[#E05A5A]/15 flex items-center justify-center">
+        <svg className="w-5 h-5 text-[#E05A5A]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 17h14M5 17a2 2 0 01-2-2V9a2 2 0 012-2h1l2-3h8l2 3h1a2 2 0 012 2v6a2 2 0 01-2 2M5 17a2 2 0 100 4 2 2 0 000-4zM19 17a2 2 0 100 4 2 2 0 000-4z" />
+          {restriction && <line x1="4" y1="4" x2="20" y2="20" stroke="currentColor" strokeWidth={2} />}
+        </svg>
+      </div>
+      <div className="flex-1">
+        <p className="text-xs text-[#8888A8] uppercase tracking-wider">Pico y Placa hoy</p>
+        {restriction ? (
+          <>
+            <p className="text-sm text-[#F0F0FF] font-semibold">{restriction.day} &middot; Placas {restriction.plates}</p>
+            <p className="text-xs text-[#8888A8]">5:00 AM - 8:00 PM</p>
+          </>
+        ) : (
+          <p className="text-sm text-[#4CAF82] font-semibold">Sin restricción hoy</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function CalendarPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [services, setServices] = useState<ServiceDay[]>([])
@@ -227,6 +263,9 @@ export default function CalendarPage() {
           )
         })}
       </div>
+
+      {/* Pico y Placa */}
+      <PicoYPlacaCard />
 
       <Modal
         open={showModal}

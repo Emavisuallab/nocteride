@@ -13,6 +13,8 @@ export interface Profile {
   id: string
   role: UserRole
   name: string
+  avatar_url: string | null
+  plate_number: string | null
   push_token: string | null
   created_at: string
 }

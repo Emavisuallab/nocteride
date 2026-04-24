@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { createClient } from '@/lib/supabase/client'
@@ -9,200 +9,360 @@ import { format } from 'date-fns'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
 
+const PICKUP = FIXED_LOCATIONS.pickup
+const HOME = FIXED_LOCATIONS.passengerHome
+
 export default function PassengerMap() {
   const mapContainer = useRef<HTMLDivElement>(null)
   const mapRef = useRef<mapboxgl.Map | null>(null)
   const driverMarkerRef = useRef<mapboxgl.Marker | null>(null)
+  const mapLoadedRef = useRef(false)
+
   const [isActive, setIsActive] = useState(false)
-  const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [driverLocation, setDriverLocation] = useState<{
+    lat: number
+    lng: number
+  } | null>(null)
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Fit map bounds to show all relevant markers
+  const fitMapBounds = useCallback(
+    (driverLng?: number, driverLat?: number) => {
+      const map = mapRef.current
+      if (!map) return
+
+      const bounds = new mapboxgl.LngLatBounds()
+      bounds.extend([PICKUP.lng, PICKUP.lat])
+      bounds.extend([HOME.lng, HOME.lat])
+      if (driverLng !== undefined && driverLat !== undefined) {
+        bounds.extend([driverLng, driverLat])
+      }
+      map.fitBounds(bounds, { padding: 80, maxZoom: 14 })
+    },
+    []
+  )
+
+  // Update driver marker and the solid driver->pickup route
+  const updateDriverMarker = useCallback(
+    (lat: number, lng: number) => {
+      setDriverLocation({ lat, lng })
+      setLastUpdate(new Date())
+
+      const map = mapRef.current
+      if (!map || !mapLoadedRef.current) return
+
+      // Create or move driver marker
+      if (!driverMarkerRef.current) {
+        const el = document.createElement('div')
+        el.className = 'driver-pulse-marker'
+        el.style.cssText = `
+          width: 22px;
+          height: 22px;
+          background: #9B7FE8;
+          border-radius: 50%;
+          border: 3px solid #fff;
+          box-shadow: 0 0 20px rgba(155,127,232,0.6);
+          animation: driverPulse 2s ease-in-out infinite;
+        `
+        driverMarkerRef.current = new mapboxgl.Marker(el)
+          .setLngLat([lng, lat])
+          .addTo(map)
+      } else {
+        driverMarkerRef.current.setLngLat([lng, lat])
+      }
+
+      // Update the solid driver-to-pickup route
+      const src = map.getSource('driver-route') as mapboxgl.GeoJSONSource | undefined
+      if (src) {
+        src.setData({
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [lng, lat],
+              [PICKUP.lng, PICKUP.lat],
+            ],
+          },
+        })
+      }
+
+      fitMapBounds(lng, lat)
+    },
+    [fitMapBounds]
+  )
+
+  // ── Map initialization (runs once) ──
   useEffect(() => {
-    if (!mapContainer.current) return
+    if (!mapContainer.current || mapRef.current) return
 
     const map = new mapboxgl.Map({
       container: mapContainer.current,
       style: MAPBOX_STYLE,
-      center: [FIXED_LOCATIONS.pickup.lng, FIXED_LOCATIONS.pickup.lat],
+      center: [
+        (PICKUP.lng + HOME.lng) / 2,
+        (PICKUP.lat + HOME.lat) / 2,
+      ],
       zoom: 11,
+      attributionControl: false,
     })
 
     mapRef.current = map
 
+    // Inject pulse animation stylesheet
+    if (!document.getElementById('nocteride-pulse-style')) {
+      const style = document.createElement('style')
+      style.id = 'nocteride-pulse-style'
+      style.textContent = `
+        @keyframes driverPulse {
+          0%, 100% { box-shadow: 0 0 20px rgba(155,127,232,0.6); }
+          50% { box-shadow: 0 0 40px rgba(155,127,232,1); }
+        }
+      `
+      document.head.appendChild(style)
+    }
+
     map.on('load', () => {
-      // Pickup marker (green)
+      mapLoadedRef.current = true
+
+      // ── Pickup marker (green) ──
       const pickupEl = document.createElement('div')
-      pickupEl.className = 'pickup-marker'
-      pickupEl.style.cssText = 'width:16px;height:16px;background:#4CAF82;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(76,175,130,0.5);'
+      pickupEl.style.cssText = `
+        width: 16px;
+        height: 16px;
+        background: #4CAF82;
+        border-radius: 50%;
+        border: 3px solid #fff;
+        box-shadow: 0 0 12px rgba(76,175,130,0.5);
+      `
       new mapboxgl.Marker(pickupEl)
-        .setLngLat([FIXED_LOCATIONS.pickup.lng, FIXED_LOCATIONS.pickup.lat])
-        .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(FIXED_LOCATIONS.pickup.label))
+        .setLngLat([PICKUP.lng, PICKUP.lat])
+        .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(PICKUP.label))
         .addTo(map)
 
-      // Passenger home marker (purple)
+      // ── Passenger home marker (purple) ──
       const homeEl = document.createElement('div')
-      homeEl.style.cssText = 'width:16px;height:16px;background:#9B7FE8;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(155,127,232,0.5);'
+      homeEl.style.cssText = `
+        width: 16px;
+        height: 16px;
+        background: #9B7FE8;
+        border-radius: 50%;
+        border: 3px solid #fff;
+        box-shadow: 0 0 12px rgba(155,127,232,0.5);
+      `
       new mapboxgl.Marker(homeEl)
-        .setLngLat([FIXED_LOCATIONS.passengerHome.lng, FIXED_LOCATIONS.passengerHome.lat])
-        .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(FIXED_LOCATIONS.passengerHome.label))
+        .setLngLat([HOME.lng, HOME.lat])
+        .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(HOME.label))
         .addTo(map)
 
-      // Route source (empty initially)
-      map.addSource('route', {
+      // ── Fixed dashed route between pickup and home (always visible) ──
+      map.addSource('fixed-route', {
         type: 'geojson',
-        data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
+        data: {
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'LineString',
+            coordinates: [
+              [PICKUP.lng, PICKUP.lat],
+              [HOME.lng, HOME.lat],
+            ],
+          },
+        },
       })
       map.addLayer({
-        id: 'route',
+        id: 'fixed-route',
         type: 'line',
-        source: 'route',
+        source: 'fixed-route',
         layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: { 'line-color': '#9B7FE8', 'line-width': 4, 'line-opacity': 0.8 },
+        paint: {
+          'line-color': '#9B7FE8',
+          'line-width': 3,
+          'line-opacity': 0.4,
+          'line-dasharray': [2, 4],
+        },
       })
+
+      // ── Driver-to-pickup solid route (visible only when driver data exists) ──
+      map.addSource('driver-route', {
+        type: 'geojson',
+        data: {
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: [] },
+        },
+      })
+      map.addLayer({
+        id: 'driver-route',
+        type: 'line',
+        source: 'driver-route',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#9B7FE8',
+          'line-width': 4,
+          'line-opacity': 0.85,
+        },
+      })
+
+      // Fit to the two fixed points initially
+      fitMapBounds()
     })
 
-    return () => map.remove()
+    return () => {
+      mapLoadedRef.current = false
+      map.remove()
+      mapRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Supabase realtime subscription ──
   useEffect(() => {
     const supabase = createClient()
+    let channelRef: ReturnType<typeof supabase.channel> | null = null
 
     async function checkActiveTracking() {
-      const today = format(new Date(), 'yyyy-MM-dd')
-      const { data: service } = await supabase
-        .from('service_days')
-        .select('id, status')
-        .eq('date', today)
-        .eq('status', 'in_progress')
-        .single()
+      try {
+        const today = format(new Date(), 'yyyy-MM-dd')
+        const { data: service } = await supabase
+          .from('service_days')
+          .select('id, status')
+          .eq('date', today)
+          .eq('status', 'in_progress')
+          .single()
 
-      if (!service) {
-        setLoading(false)
-        return
-      }
+        if (!service) {
+          setIsActive(false)
+          setLoading(false)
+          return
+        }
 
-      setIsActive(true)
+        setIsActive(true)
 
-      const { data: session } = await supabase
-        .from('tracking_sessions')
-        .select('id')
-        .eq('service_day_id', service.id)
-        .eq('is_active', true)
-        .single()
+        const { data: session } = await supabase
+          .from('tracking_sessions')
+          .select('id')
+          .eq('service_day_id', service.id)
+          .eq('is_active', true)
+          .single()
 
-      if (!session) {
-        setLoading(false)
-        return
-      }
+        if (!session) {
+          setLoading(false)
+          return
+        }
 
-      // Get last known location
-      const { data: lastLoc } = await supabase
-        .from('location_updates')
-        .select('lat, lng')
-        .eq('tracking_session_id', session.id)
-        .order('recorded_at', { ascending: false })
-        .limit(1)
-        .single()
+        // Fetch last known location
+        const { data: lastLoc } = await supabase
+          .from('location_updates')
+          .select('lat, lng, recorded_at')
+          .eq('tracking_session_id', session.id)
+          .order('recorded_at', { ascending: false })
+          .limit(1)
+          .single()
 
-      if (lastLoc) {
-        updateDriverMarker(lastLoc.lat, lastLoc.lng)
-      }
-
-      // Subscribe to realtime
-      const channel = supabase
-        .channel('location-updates')
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'location_updates',
-            filter: `tracking_session_id=eq.${session.id}`,
-          },
-          (payload) => {
-            const { lat, lng } = payload.new as { lat: number; lng: number }
-            updateDriverMarker(lat, lng)
+        if (lastLoc) {
+          updateDriverMarker(lastLoc.lat, lastLoc.lng)
+          if (lastLoc.recorded_at) {
+            setLastUpdate(new Date(lastLoc.recorded_at))
           }
-        )
-        .subscribe()
+        }
 
-      setLoading(false)
-
-      return () => {
-        supabase.removeChannel(channel)
+        // Subscribe to new location inserts
+        channelRef = supabase
+          .channel('passenger-location-updates')
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'location_updates',
+              filter: `tracking_session_id=eq.${session.id}`,
+            },
+            (payload) => {
+              const row = payload.new as {
+                lat: number
+                lng: number
+                recorded_at?: string
+              }
+              updateDriverMarker(row.lat, row.lng)
+            }
+          )
+          .subscribe()
+      } catch {
+        // Service/session may not exist yet — that's fine
+      } finally {
+        setLoading(false)
       }
     }
 
     checkActiveTracking()
+
+    return () => {
+      if (channelRef) {
+        supabase.removeChannel(channelRef)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function updateDriverMarker(lat: number, lng: number) {
-    setDriverLocation({ lat, lng })
-    const map = mapRef.current
-    if (!map) return
-
-    if (!driverMarkerRef.current) {
-      const el = document.createElement('div')
-      el.style.cssText = 'width:24px;height:24px;background:#9B7FE8;border-radius:50%;border:4px solid #fff;box-shadow:0 0 20px rgba(155,127,232,0.6);animation:pulse 2s infinite;'
-      const style = document.createElement('style')
-      style.textContent = '@keyframes pulse{0%,100%{box-shadow:0 0 20px rgba(155,127,232,0.6)}50%{box-shadow:0 0 40px rgba(155,127,232,0.9)}}'
-      document.head.appendChild(style)
-      driverMarkerRef.current = new mapboxgl.Marker(el).setLngLat([lng, lat]).addTo(map)
-    } else {
-      driverMarkerRef.current.setLngLat([lng, lat])
-    }
-
-    // Update route line
-    const source = map.getSource('route') as mapboxgl.GeoJSONSource
-    if (source) {
-      source.setData({
-        type: 'Feature',
-        properties: {},
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            [lng, lat],
-            [FIXED_LOCATIONS.pickup.lng, FIXED_LOCATIONS.pickup.lat],
-          ],
-        },
-      })
-    }
-
-    // Fit bounds
-    const bounds = new mapboxgl.LngLatBounds()
-    bounds.extend([lng, lat])
-    bounds.extend([FIXED_LOCATIONS.pickup.lng, FIXED_LOCATIONS.pickup.lat])
-    bounds.extend([FIXED_LOCATIONS.passengerHome.lng, FIXED_LOCATIONS.passengerHome.lat])
-    map.fitBounds(bounds, { padding: 80, maxZoom: 14 })
-  }
-
+  // ── Render ──
   return (
-    <div className="relative h-[calc(100vh-80px)]">
+    <div className="relative h-[calc(100vh-80px)] w-full bg-[#0A0A14]">
+      {/* Fullscreen map */}
       <div ref={mapContainer} className="absolute inset-0" />
 
+      {/* Bottom overlay card */}
       <div className="absolute bottom-4 left-4 right-4 z-10">
-        <div className="bg-[#1A1A2E] border border-[rgba(155,127,232,0.15)] rounded-3xl p-4">
+        <div className="bg-[#1A1A2E] border border-[rgba(155,127,232,0.2)] rounded-3xl p-5 backdrop-blur-sm">
           {loading ? (
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full bg-[#8888A8] animate-pulse" />
-              <span className="text-[#8888A8]">Cargando...</span>
+              <span className="text-sm text-[#8888A8]">Cargando...</span>
             </div>
           ) : isActive ? (
             <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-[#4CAF82] animate-pulse" />
-              <div>
-                <p className="text-[#F0F0FF] font-bold">Transportador en camino</p>
+              <div className="relative flex-shrink-0">
+                <div className="w-3 h-3 rounded-full bg-[#4CAF82]" />
+                <div className="absolute inset-0 w-3 h-3 rounded-full bg-[#4CAF82] animate-ping opacity-75" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[#F0F0FF] font-semibold text-sm">
+                  Transportador en camino
+                </p>
                 {driverLocation && (
-                  <p className="text-xs text-[#8888A8]">
-                    Última ubicación: {driverLocation.lat.toFixed(4)}, {driverLocation.lng.toFixed(4)}
+                  <p className="text-xs text-[#8888A8] mt-0.5 truncate">
+                    {driverLocation.lat.toFixed(5)}, {driverLocation.lng.toFixed(5)}
+                    {lastUpdate && (
+                      <span className="ml-2 text-[#6B6B80]">
+                        {format(lastUpdate, 'HH:mm:ss')}
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-[#8888A8]" />
-              <span className="text-[#8888A8]">No hay viaje activo</span>
+              <svg
+                className="w-5 h-5 text-[#6B6B80] flex-shrink-0"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z"
+                />
+              </svg>
+              <span className="text-sm text-[#6B6B80]">Sin viaje activo</span>
             </div>
           )}
         </div>
