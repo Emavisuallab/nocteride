@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "mapbox-gl/dist/mapbox-gl.css";
 
 @theme inline {
   --color-bg-primary: #0D0D14;
