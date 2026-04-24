@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import mapboxgl from 'mapbox-gl'
-import 'mapbox-gl/dist/mapbox-gl.css'
 import { createClient } from '@/lib/supabase/client'
 import { FIXED_LOCATIONS, MAPBOX_STYLE } from '@/lib/constants'
 import Button from '@/components/ui/Button'
