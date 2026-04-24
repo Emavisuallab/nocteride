@@ -22,6 +22,7 @@ export default function PassengerMap() {
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [loading, setLoading] = useState(true)
+  const [mapError, setMapError] = useState<string | null>(null)
 
   const fitMapBounds = useCallback((driverLng?: number, driverLat?: number) => {
     const map = mapRef.current
@@ -63,14 +64,30 @@ export default function PassengerMap() {
   useEffect(() => {
     if (!mapContainer.current) return
 
-    const map = new mapboxgl.Map({
-      container: mapContainer.current,
-      style: MAPBOX_STYLE,
-      center: [(PICKUP.lng + HOME.lng) / 2, (PICKUP.lat + HOME.lat) / 2],
-      zoom: 11,
-      attributionControl: false,
-    })
+    if (!mapboxgl.accessToken) {
+      setMapError('Token de Mapbox no configurado')
+      return
+    }
+
+    let map: mapboxgl.Map
+    try {
+      map = new mapboxgl.Map({
+        container: mapContainer.current,
+        style: MAPBOX_STYLE,
+        center: [(PICKUP.lng + HOME.lng) / 2, (PICKUP.lat + HOME.lat) / 2],
+        zoom: 11,
+        attributionControl: false,
+      })
+    } catch (err: any) {
+      setMapError('Error al inicializar mapa: ' + (err.message || err))
+      return
+    }
     mapRef.current = map
+
+    map.on('error', (e) => {
+      console.error('Mapbox error:', e)
+      setMapError('Error de Mapbox: ' + (e.error?.message || 'desconocido'))
+    })
 
     if (!document.getElementById('nocteride-pulse-style')) {
       const s = document.createElement('style')
@@ -127,7 +144,8 @@ export default function PassengerMap() {
     })
 
     return () => { mapLoadedRef.current = false; map.remove(); mapRef.current = null }
-  }, [fitMapBounds])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Realtime subscription
   useEffect(() => {
@@ -175,6 +193,18 @@ export default function PassengerMap() {
     check()
     return () => { if (channelRef) supabase.removeChannel(channelRef) }
   }, [updateDriverMarker])
+
+  if (mapError) {
+    return (
+      <div className="h-[calc(100vh-80px)] w-full bg-[#0A0A14] flex items-center justify-center p-6">
+        <div className="bg-[#1A1A2E] border border-[rgba(224,90,90,0.3)] rounded-3xl p-6 text-center max-w-sm">
+          <p className="text-[#E05A5A] font-bold mb-2">Error del mapa</p>
+          <p className="text-[#8888A8] text-sm">{mapError}</p>
+          <p className="text-[#8888A8] text-xs mt-3">Token: {mapboxgl.accessToken ? 'configurado (' + mapboxgl.accessToken.substring(0, 10) + '...)' : 'VACÍO'}</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="relative h-[calc(100vh-80px)] w-full bg-[#0A0A14]">
