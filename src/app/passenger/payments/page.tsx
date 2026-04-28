@@ -28,7 +28,7 @@ export default function PassengerPayments() {
     setServices(data || [])
 
     const unpaid = (data || []).filter(
-      (s) => !s.is_paid && ['confirmed', 'completed', 'in_progress'].includes(s.status)
+      (s) => !s.is_paid && s.status === 'completed'
     )
     setDebt(unpaid.length * SERVICE_AMOUNT)
     setPendingCount(unpaid.length)

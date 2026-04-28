@@ -70,7 +70,7 @@ export default function DriverHome() {
       .from('service_days')
       .select('amount')
       .eq('is_paid', false)
-      .in('status', ['confirmed', 'completed', 'in_progress'])
+      .in('status', ['completed'])
     setEarnings((unpaid || []).reduce((sum, s) => sum + s.amount, 0))
 
     setLoading(false)

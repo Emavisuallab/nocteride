@@ -26,7 +26,7 @@ export default function DriverEarnings() {
       setServices(svcData || [])
 
       const unpaid = (svcData || []).filter(
-        (s) => !s.is_paid && ['confirmed', 'completed', 'in_progress'].includes(s.status)
+        (s) => !s.is_paid && s.status === 'completed'
       )
       setOwed(unpaid.length * SERVICE_AMOUNT)
 

@@ -158,7 +158,7 @@ export default function PassengerHome() {
         .from('service_days')
         .select('amount')
         .eq('is_paid', false)
-        .in('status', ['confirmed', 'completed', 'in_progress'])
+        .in('status', ['completed'])
       const unpaidList = unpaid || []
       setDebt(unpaidList.reduce((sum, s) => sum + s.amount, 0))
       setDebtCount(unpaidList.length)
