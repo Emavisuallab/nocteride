@@ -1,127 +1,27 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import Map, { Marker, Source, Layer } from 'react-map-gl/mapbox'
+import 'mapbox-gl/dist/mapbox-gl.css'
 import { createClient } from '@/lib/supabase/client'
-import { FIXED_LOCATIONS, MAPBOX_STYLE, MAPBOX_TOKEN } from '@/lib/constants'
+import { FIXED_LOCATIONS, MAPBOX_TOKEN, MAPBOX_STYLE } from '@/lib/constants'
 import { format } from 'date-fns'
 
 const PICKUP = FIXED_LOCATIONS.pickup
 const HOME = FIXED_LOCATIONS.passengerHome
 
 export default function PassengerMapPage() {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<any>(null)
-  const driverMarkerRef = useRef<any>(null)
-  const mapLoadedRef = useRef(false)
-
-  const [isActive, setIsActive] = useState(false)
   const [driverLocation, setDriverLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const [isActive, setIsActive] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [loading, setLoading] = useState(true)
-  const [mapReady, setMapReady] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  // Load mapbox-gl dynamically on client
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!mapContainer.current) return
-    if (mapRef.current) return
+  const [viewState, setViewState] = useState({
+    longitude: (PICKUP.lng + HOME.lng) / 2,
+    latitude: (PICKUP.lat + HOME.lat) / 2,
+    zoom: 11,
+  })
 
-    let cancelled = false
-
-    async function initMap() {
-      try {
-        const mapboxgl = (await import('mapbox-gl')).default
-
-        if (cancelled || !mapContainer.current) return
-
-        mapboxgl.accessToken = MAPBOX_TOKEN
-
-        const map = new mapboxgl.Map({
-          container: mapContainer.current,
-          style: MAPBOX_STYLE,
-          center: [(PICKUP.lng + HOME.lng) / 2, (PICKUP.lat + HOME.lat) / 2],
-          zoom: 11,
-          attributionControl: false,
-        })
-
-        mapRef.current = map
-
-        map.on('error', (e: any) => {
-          console.error('Mapbox error:', e)
-        })
-
-        map.on('load', () => {
-          if (cancelled) return
-          mapLoadedRef.current = true
-          setMapReady(true)
-
-          // Pickup marker (green)
-          const pickupEl = document.createElement('div')
-          pickupEl.style.cssText = 'width:16px;height:16px;background:#4CAF82;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(76,175,130,0.5);'
-          new mapboxgl.Marker(pickupEl)
-            .setLngLat([PICKUP.lng, PICKUP.lat])
-            .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(PICKUP.label))
-            .addTo(map)
-
-          // Home marker (purple)
-          const homeEl = document.createElement('div')
-          homeEl.style.cssText = 'width:16px;height:16px;background:#9B7FE8;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(155,127,232,0.5);'
-          new mapboxgl.Marker(homeEl)
-            .setLngLat([HOME.lng, HOME.lat])
-            .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(HOME.label))
-            .addTo(map)
-
-          // Fixed dashed route
-          map.addSource('fixed-route', {
-            type: 'geojson',
-            data: {
-              type: 'Feature', properties: {},
-              geometry: { type: 'LineString', coordinates: [[PICKUP.lng, PICKUP.lat], [HOME.lng, HOME.lat]] },
-            },
-          })
-          map.addLayer({
-            id: 'fixed-route', type: 'line', source: 'fixed-route',
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: { 'line-color': '#9B7FE8', 'line-width': 3, 'line-opacity': 0.4, 'line-dasharray': [2, 4] },
-          })
-
-          // Driver route (solid, initially empty)
-          map.addSource('driver-route', {
-            type: 'geojson',
-            data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
-          })
-          map.addLayer({
-            id: 'driver-route', type: 'line', source: 'driver-route',
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: { 'line-color': '#9B7FE8', 'line-width': 4, 'line-opacity': 0.85 },
-          })
-
-          // Fit bounds
-          const bounds = new mapboxgl.LngLatBounds()
-          bounds.extend([PICKUP.lng, PICKUP.lat])
-          bounds.extend([HOME.lng, HOME.lat])
-          map.fitBounds(bounds, { padding: 80, maxZoom: 14 })
-        })
-      } catch (err: any) {
-        console.error('Map init error:', err)
-        if (!cancelled) setError(err.message || 'Error al cargar el mapa')
-      }
-    }
-
-    initMap()
-
-    return () => {
-      cancelled = true
-      if (mapRef.current) {
-        mapRef.current.remove()
-        mapRef.current = null
-        mapLoadedRef.current = false
-      }
-    }
-  }, [])
-
-  // Realtime subscription for driver location
   useEffect(() => {
     const supabase = createClient()
     let channelRef: any = null
@@ -148,7 +48,7 @@ export default function PassengerMapPage() {
           .order('recorded_at', { ascending: false }).limit(1).single()
 
         if (lastLoc) {
-          updateDriverPosition(lastLoc.lat, lastLoc.lng)
+          setDriverLocation({ lat: lastLoc.lat, lng: lastLoc.lng })
           if (lastLoc.recorded_at) setLastUpdate(new Date(lastLoc.recorded_at))
         }
 
@@ -158,76 +58,77 @@ export default function PassengerMapPage() {
             filter: `tracking_session_id=eq.${session.id}`,
           }, (payload: any) => {
             const r = payload.new as { lat: number; lng: number }
-            updateDriverPosition(r.lat, r.lng)
+            setDriverLocation({ lat: r.lat, lng: r.lng })
+            setLastUpdate(new Date())
           }).subscribe()
       } catch { /* no trip */ }
       finally { setLoading(false) }
     }
-
     check()
     return () => { if (channelRef) supabase.removeChannel(channelRef) }
   }, [])
 
-  function updateDriverPosition(lat: number, lng: number) {
-    setDriverLocation({ lat, lng })
-    setLastUpdate(new Date())
-
-    const map = mapRef.current
-    if (!map || !mapLoadedRef.current) return
-
-    import('mapbox-gl').then(({ default: mapboxgl }) => {
-      if (!driverMarkerRef.current) {
-        const el = document.createElement('div')
-        el.style.cssText = 'width:22px;height:22px;background:#9B7FE8;border-radius:50%;border:3px solid #fff;box-shadow:0 0 20px rgba(155,127,232,0.6);'
-        if (!document.getElementById('nocteride-pulse')) {
-          const s = document.createElement('style')
-          s.id = 'nocteride-pulse'
-          s.textContent = '@keyframes nrPulse{0%,100%{box-shadow:0 0 20px rgba(155,127,232,0.6)}50%{box-shadow:0 0 40px rgba(155,127,232,1)}}'
-          document.head.appendChild(s)
-        }
-        el.style.animation = 'nrPulse 2s ease-in-out infinite'
-        driverMarkerRef.current = new mapboxgl.Marker(el).setLngLat([lng, lat]).addTo(map)
-      } else {
-        driverMarkerRef.current.setLngLat([lng, lat])
-      }
-
-      const src = map.getSource('driver-route')
-      if (src) {
-        src.setData({
-          type: 'Feature', properties: {},
-          geometry: { type: 'LineString', coordinates: [[lng, lat], [PICKUP.lng, PICKUP.lat]] },
-        })
-      }
-
-      const bounds = new mapboxgl.LngLatBounds()
-      bounds.extend([lng, lat])
-      bounds.extend([PICKUP.lng, PICKUP.lat])
-      bounds.extend([HOME.lng, HOME.lat])
-      map.fitBounds(bounds, { padding: 80, maxZoom: 14 })
-    })
+  const fixedRouteData: GeoJSON.Feature = {
+    type: 'Feature', properties: {},
+    geometry: { type: 'LineString', coordinates: [[PICKUP.lng, PICKUP.lat], [HOME.lng, HOME.lat]] },
   }
 
-  if (error) {
-    return (
-      <div className="h-[calc(100vh-80px)] w-full bg-[#0A0A14] flex items-center justify-center p-6">
-        <div className="bg-[#1A1A2E] border border-[rgba(224,90,90,0.3)] rounded-3xl p-6 text-center max-w-sm">
-          <p className="text-[#E05A5A] font-bold mb-2">Error del mapa</p>
-          <p className="text-[#8888A8] text-sm">{error}</p>
-        </div>
-      </div>
-    )
+  const driverRouteData: GeoJSON.Feature = {
+    type: 'Feature', properties: {},
+    geometry: {
+      type: 'LineString',
+      coordinates: driverLocation
+        ? [[driverLocation.lng, driverLocation.lat], [PICKUP.lng, PICKUP.lat]]
+        : [],
+    },
   }
 
   return (
     <div className="relative h-[calc(100vh-80px)] w-full bg-[#0A0A14]">
-      <div ref={mapContainer} className="absolute inset-0" />
+      <Map
+        {...viewState}
+        onMove={evt => setViewState(evt.viewState)}
+        mapboxAccessToken={MAPBOX_TOKEN}
+        mapStyle={MAPBOX_STYLE}
+        style={{ width: '100%', height: '100%' }}
+        attributionControl={false}
+      >
+        {/* Pickup marker (green) */}
+        <Marker longitude={PICKUP.lng} latitude={PICKUP.lat} anchor="center">
+          <div style={{ width: 16, height: 16, background: '#4CAF82', borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 12px rgba(76,175,130,0.5)' }} />
+        </Marker>
 
-      {!mapReady && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-[#8888A8] text-sm animate-pulse">Cargando mapa...</div>
-        </div>
-      )}
+        {/* Home marker (purple) */}
+        <Marker longitude={HOME.lng} latitude={HOME.lat} anchor="center">
+          <div style={{ width: 16, height: 16, background: '#9B7FE8', borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 12px rgba(155,127,232,0.5)' }} />
+        </Marker>
 
+        {/* Driver marker (pulsing) */}
+        {driverLocation && (
+          <Marker longitude={driverLocation.lng} latitude={driverLocation.lat} anchor="center">
+            <div className="relative">
+              <div style={{ width: 22, height: 22, background: '#9B7FE8', borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 20px rgba(155,127,232,0.6)' }} />
+              <div className="absolute inset-0 rounded-full bg-[#9B7FE8] animate-ping opacity-30" />
+            </div>
+          </Marker>
+        )}
+
+        {/* Fixed dashed route */}
+        <Source id="fixed-route" type="geojson" data={fixedRouteData}>
+          <Layer id="fixed-route" type="line"
+            paint={{ 'line-color': '#9B7FE8', 'line-width': 3, 'line-opacity': 0.4, 'line-dasharray': [2, 4] }} />
+        </Source>
+
+        {/* Driver route (solid) */}
+        {driverLocation && (
+          <Source id="driver-route" type="geojson" data={driverRouteData}>
+            <Layer id="driver-route" type="line"
+              paint={{ 'line-color': '#9B7FE8', 'line-width': 4, 'line-opacity': 0.85 }} />
+          </Source>
+        )}
+      </Map>
+
+      {/* Bottom card */}
       <div className="absolute bottom-4 left-4 right-4 z-10">
         <div className="bg-[#1A1A2E] border border-[rgba(155,127,232,0.2)] rounded-3xl p-5">
           {loading ? (
@@ -244,7 +145,7 @@ export default function PassengerMapPage() {
               <div className="min-w-0">
                 <p className="text-[#F0F0FF] font-semibold text-sm">Transportador en camino</p>
                 {driverLocation && (
-                  <p className="text-xs text-[#8888A8] mt-0.5 truncate">
+                  <p className="text-xs text-[#8888A8] mt-0.5">
                     {driverLocation.lat.toFixed(5)}, {driverLocation.lng.toFixed(5)}
                     {lastUpdate && <span className="ml-2 text-[#6B6B80]">{format(lastUpdate, 'HH:mm:ss')}</span>}
                   </p>

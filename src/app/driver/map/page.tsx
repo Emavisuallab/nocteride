@@ -1,17 +1,17 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import Map, { Marker, Source, Layer } from 'react-map-gl/mapbox'
+import 'mapbox-gl/dist/mapbox-gl.css'
 import { createClient } from '@/lib/supabase/client'
-import { FIXED_LOCATIONS, MAPBOX_STYLE, MAPBOX_TOKEN } from '@/lib/constants'
+import { FIXED_LOCATIONS, MAPBOX_TOKEN, MAPBOX_STYLE } from '@/lib/constants'
 import Button from '@/components/ui/Button'
 import { useToast } from '@/components/ui/Toast'
 import { format } from 'date-fns'
+
 type GpsStatus = 'checking' | 'prompting' | 'active' | 'denied' | 'unavailable'
 
 export default function DriverMapPage() {
-  const mapContainer = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<any>(null)
-  const driverMarkerRef = useRef<any>(null)
   const watchIdRef = useRef<number | null>(null)
   const lastSentRef = useRef<number>(0)
 
@@ -22,132 +22,28 @@ export default function DriverMapPage() {
   const [trackingSessionId, setTrackingSessionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
-  const [mapReady, setMapReady] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
 
-  function updateMarker(lat: number, lng: number) {
-    const map = mapRef.current
-    if (!map) return
+  const [viewState, setViewState] = useState({
+    longitude: FIXED_LOCATIONS.driverHome.lng,
+    latitude: FIXED_LOCATIONS.driverHome.lat,
+    zoom: 11,
+  })
 
-    import('mapbox-gl').then(({ default: mapboxgl }) => {
-      if (!driverMarkerRef.current) {
-        const el = document.createElement('div')
-        el.innerHTML = '<div style="position:relative;width:24px;height:24px;"><div style="position:absolute;inset:0;background:#9B7FE8;border-radius:50%;border:4px solid #fff;box-shadow:0 0 20px rgba(155,127,232,0.6);"></div><div style="position:absolute;inset:-6px;background:rgba(155,127,232,0.25);border-radius:50%;animation:drvP 2s ease-in-out infinite;"></div></div>'
-        if (!document.getElementById('drvP-style')) {
-          const s = document.createElement('style')
-          s.id = 'drvP-style'
-          s.textContent = '@keyframes drvP{0%,100%{transform:scale(1);opacity:.25}50%{transform:scale(1.5);opacity:0}}'
-          document.head.appendChild(s)
-        }
-        driverMarkerRef.current = new mapboxgl.Marker(el).setLngLat([lng, lat]).addTo(map)
-      } else {
-        driverMarkerRef.current.setLngLat([lng, lat])
-      }
-
-      const src = map.getSource('route')
-      if (src) {
-        src.setData({
-          type: 'Feature', properties: {},
-          geometry: { type: 'LineString', coordinates: [[lng, lat], [FIXED_LOCATIONS.pickup.lng, FIXED_LOCATIONS.pickup.lat]] },
-        })
-      }
-    })
-  }
-
-  // Init map
+  // GPS on mount
   useEffect(() => {
-    if (typeof window === 'undefined' || !mapContainer.current || mapRef.current) return
-    let cancelled = false
-
-    async function init() {
-      try {
-        const mapboxgl = (await import('mapbox-gl')).default
-        if (cancelled || !mapContainer.current) return
-
-        mapboxgl.accessToken = MAPBOX_TOKEN
-        const map = new mapboxgl.Map({
-          container: mapContainer.current,
-          style: MAPBOX_STYLE,
-          center: [FIXED_LOCATIONS.driverHome.lng, FIXED_LOCATIONS.driverHome.lat],
-          zoom: 11,
-          attributionControl: false,
-        })
-        mapRef.current = map
-
-        map.on('load', () => {
-          if (cancelled) return
-          setMapReady(true)
-
-          const pickupEl = document.createElement('div')
-          pickupEl.style.cssText = 'width:16px;height:16px;background:#4CAF82;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(76,175,130,0.5);'
-          new mapboxgl.Marker(pickupEl)
-            .setLngLat([FIXED_LOCATIONS.pickup.lng, FIXED_LOCATIONS.pickup.lat])
-            .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(FIXED_LOCATIONS.pickup.label))
-            .addTo(map)
-
-          const homeEl = document.createElement('div')
-          homeEl.style.cssText = 'width:16px;height:16px;background:#C4A8FF;border-radius:50%;border:3px solid #fff;box-shadow:0 0 12px rgba(196,168,255,0.5);'
-          new mapboxgl.Marker(homeEl)
-            .setLngLat([FIXED_LOCATIONS.passengerHome.lng, FIXED_LOCATIONS.passengerHome.lat])
-            .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(FIXED_LOCATIONS.passengerHome.label))
-            .addTo(map)
-
-          map.addSource('route', {
-            type: 'geojson',
-            data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } },
-          })
-          map.addLayer({
-            id: 'route', type: 'line', source: 'route',
-            layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: { 'line-color': '#9B7FE8', 'line-width': 4, 'line-opacity': 0.8 },
-          })
-        })
-      } catch (err: any) {
-        if (!cancelled) setError(err.message || 'Error al cargar mapa')
-      }
-    }
-
-    init()
-    return () => { cancelled = true; if (mapRef.current) { mapRef.current.remove(); mapRef.current = null } }
-  }, [])
-
-  // GPS
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    let cancelled = false
-
-    async function requestGps() {
-      if (!navigator.geolocation) { setGpsStatus('unavailable'); return }
-      if (navigator.permissions) {
-        try {
-          const perm = await navigator.permissions.query({ name: 'geolocation' })
-          if (perm.state === 'denied') { setGpsStatus('denied'); return }
-          perm.addEventListener('change', () => {
-            if (perm.state === 'denied') setGpsStatus('denied')
-            if (perm.state === 'granted') setGpsStatus('active')
-          })
-        } catch { /* continue */ }
-      }
-      setGpsStatus('prompting')
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          if (cancelled) return
-          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
-          setMyLocation(loc)
-          setGpsStatus('active')
-          updateMarker(loc.lat, loc.lng)
-          mapRef.current?.flyTo({ center: [loc.lng, loc.lat], zoom: 13 })
-        },
-        (err) => {
-          if (cancelled) return
-          setGpsStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable')
-        },
-        { enableHighAccuracy: true, timeout: 15000 }
-      )
-    }
-    requestGps()
-    return () => { cancelled = true }
+    if (!navigator.geolocation) { setGpsStatus('unavailable'); return }
+    setGpsStatus('prompting')
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        setMyLocation(loc)
+        setGpsStatus('active')
+        setViewState(v => ({ ...v, longitude: loc.lng, latitude: loc.lat, zoom: 13 }))
+      },
+      (err) => setGpsStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable'),
+      { enableHighAccuracy: true, timeout: 15000 }
+    )
   }, [])
 
   // Check trip
@@ -187,7 +83,6 @@ export default function DriverMapPage() {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
         setMyLocation(loc)
         setGpsStatus('active')
-        updateMarker(loc.lat, loc.lng)
         const now = Date.now()
         if (now - lastSentRef.current >= 30000) {
           lastSentRef.current = now
@@ -204,8 +99,7 @@ export default function DriverMapPage() {
   }
 
   async function handleStartTrip() {
-    if (!serviceId) return
-    if (gpsStatus !== 'active') { toast('Necesitas GPS activo', 'error'); return }
+    if (!serviceId || gpsStatus !== 'active') { toast('Necesitas GPS activo', 'error'); return }
     setActionLoading(true)
     try {
       const supabase = createClient()
@@ -237,30 +131,58 @@ export default function DriverMapPage() {
     finally { setActionLoading(false) }
   }
 
+  const routeData: GeoJSON.Feature = {
+    type: 'Feature', properties: {},
+    geometry: {
+      type: 'LineString',
+      coordinates: myLocation
+        ? [[myLocation.lng, myLocation.lat], [FIXED_LOCATIONS.pickup.lng, FIXED_LOCATIONS.pickup.lat]]
+        : [],
+    },
+  }
+
   const gpsColors: Record<GpsStatus, string> = { checking: '#8888A8', prompting: '#F0A070', active: '#4CAF82', denied: '#EF4444', unavailable: '#EF4444' }
   const gpsLabels: Record<GpsStatus, string> = { checking: 'Verificando GPS...', prompting: 'Activando GPS...', active: 'GPS activo', denied: 'GPS denegado', unavailable: 'GPS no disponible' }
 
-  if (error) {
-    return (
-      <div className="h-[calc(100vh-80px)] w-full bg-[#0A0A14] flex items-center justify-center p-6">
-        <div className="bg-[#1A1A2E] rounded-3xl p-6 text-center">
-          <p className="text-[#E05A5A] font-bold mb-2">Error del mapa</p>
-          <p className="text-[#8888A8] text-sm">{error}</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="relative h-[calc(100vh-80px)]">
-      <div ref={mapContainer} className="absolute inset-0" />
+      <Map
+        {...viewState}
+        onMove={evt => setViewState(evt.viewState)}
+        mapboxAccessToken={MAPBOX_TOKEN}
+        mapStyle={MAPBOX_STYLE}
+        style={{ width: '100%', height: '100%' }}
+        attributionControl={false}
+      >
+        {/* Pickup (green) */}
+        <Marker longitude={FIXED_LOCATIONS.pickup.lng} latitude={FIXED_LOCATIONS.pickup.lat} anchor="center">
+          <div style={{ width: 16, height: 16, background: '#4CAF82', borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 12px rgba(76,175,130,0.5)' }} />
+        </Marker>
 
-      {!mapReady && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#0A0A14]">
-          <div className="text-[#8888A8] text-sm animate-pulse">Cargando mapa...</div>
-        </div>
-      )}
+        {/* Passenger home (light purple) */}
+        <Marker longitude={FIXED_LOCATIONS.passengerHome.lng} latitude={FIXED_LOCATIONS.passengerHome.lat} anchor="center">
+          <div style={{ width: 16, height: 16, background: '#C4A8FF', borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 12px rgba(196,168,255,0.5)' }} />
+        </Marker>
 
+        {/* My location (pulsing) */}
+        {myLocation && (
+          <Marker longitude={myLocation.lng} latitude={myLocation.lat} anchor="center">
+            <div className="relative">
+              <div style={{ width: 22, height: 22, background: '#9B7FE8', borderRadius: '50%', border: '4px solid #fff', boxShadow: '0 0 20px rgba(155,127,232,0.6)' }} />
+              <div className="absolute inset-[-6px] rounded-full bg-[#9B7FE8] animate-ping opacity-25" />
+            </div>
+          </Marker>
+        )}
+
+        {/* Route line */}
+        {myLocation && (
+          <Source id="route" type="geojson" data={routeData}>
+            <Layer id="route" type="line" paint={{ 'line-color': '#9B7FE8', 'line-width': 4, 'line-opacity': 0.8 }} />
+          </Source>
+        )}
+      </Map>
+
+      {/* Bottom card */}
       <div className="absolute bottom-4 left-4 right-4 z-10">
         <div className="bg-[#1A1A2E] border border-[rgba(155,127,232,0.15)] rounded-3xl p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -270,8 +192,7 @@ export default function DriverMapPage() {
 
           {(gpsStatus === 'denied' || gpsStatus === 'unavailable') && (
             <div className="mb-3 p-3 rounded-xl bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)]">
-              <p className="text-sm text-[#EF4444] font-medium mb-1">{gpsStatus === 'denied' ? 'Permiso de ubicación denegado' : 'GPS no disponible'}</p>
-              <p className="text-xs text-[#8888A8]">{gpsStatus === 'denied' ? 'Abre configuración del navegador → Permisos → Ubicación → Permitir. Luego recarga.' : 'Usa HTTPS y un navegador compatible.'}</p>
+              <p className="text-sm text-[#EF4444] font-medium">{gpsStatus === 'denied' ? 'Permiso denegado — abre configuración del navegador → Ubicación → Permitir' : 'GPS no disponible'}</p>
             </div>
           )}
 
@@ -284,10 +205,7 @@ export default function DriverMapPage() {
             <div className="space-y-3">
               <div className="flex items-center gap-3">
                 <div className="w-3 h-3 rounded-full bg-[#4CAF82] animate-pulse" />
-                <div>
-                  <p className="text-[#F0F0FF] font-bold">Compartiendo ubicación</p>
-                  {myLocation && <p className="text-xs text-[#8888A8]">{myLocation.lat.toFixed(5)}, {myLocation.lng.toFixed(5)}</p>}
-                </div>
+                <p className="text-[#F0F0FF] font-bold">Compartiendo ubicación</p>
               </div>
               <Button variant="danger" className="w-full h-14 text-lg" size="lg" onClick={handleEndTrip} loading={actionLoading}>Llegué</Button>
             </div>

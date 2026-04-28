@@ -25,23 +25,18 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  // Use getSession instead of getUser for faster middleware (no network call)
+  const { data: { session } } = await supabase.auth.getSession()
 
-  if (!user && !request.nextUrl.pathname.startsWith('/login')) {
+  if (!session && !request.nextUrl.pathname.startsWith('/login')) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
-  if (user && request.nextUrl.pathname === '/login') {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
+  if (session && request.nextUrl.pathname === '/login') {
     const url = request.nextUrl.clone()
-    url.pathname = profile?.role === 'driver' ? '/driver' : '/passenger'
+    url.pathname = '/passenger'
     return NextResponse.redirect(url)
   }
 
