@@ -98,12 +98,17 @@ export default function PassengerMapPage() {
           <div style={{ width: 16, height: 16, background: '#4CAF82', borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 12px rgba(76,175,130,0.5)' }} />
         </Marker>
 
-        {/* Home marker (purple) */}
+        {/* Passenger home marker (purple) */}
         <Marker longitude={HOME.lng} latitude={HOME.lat} anchor="center">
           <div style={{ width: 16, height: 16, background: '#9B7FE8', borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 12px rgba(155,127,232,0.5)' }} />
         </Marker>
 
-        {/* Driver marker (pulsing) */}
+        {/* Driver home marker (orange) */}
+        <Marker longitude={FIXED_LOCATIONS.driverHome.lng} latitude={FIXED_LOCATIONS.driverHome.lat} anchor="center">
+          <div style={{ width: 16, height: 16, background: '#F0A070', borderRadius: '50%', border: '3px solid #fff', boxShadow: '0 0 12px rgba(240,160,112,0.5)' }} />
+        </Marker>
+
+        {/* Driver live marker (pulsing) */}
         {driverLocation && (
           <Marker longitude={driverLocation.lng} latitude={driverLocation.lat} anchor="center">
             <div className="relative">
