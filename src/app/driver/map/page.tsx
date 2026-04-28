@@ -78,19 +78,36 @@ export default function DriverMapPage() {
   function startWatching(sessionId: string) {
     if (watchIdRef.current !== null || !navigator.geolocation) return
     const supabase = createClient()
+
+    // Send current location immediately
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
+        setMyLocation(loc)
+        lastSentRef.current = Date.now()
+        await supabase.from('location_updates').insert({ tracking_session_id: sessionId, lat: loc.lat, lng: loc.lng })
+      },
+      () => {},
+      { enableHighAccuracy: true }
+    )
+
+    // Then watch continuously
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (pos) => {
         const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude }
         setMyLocation(loc)
         setGpsStatus('active')
         const now = Date.now()
-        if (now - lastSentRef.current >= 30000) {
+        if (now - lastSentRef.current >= 15000) {
           lastSentRef.current = now
           await supabase.from('location_updates').insert({ tracking_session_id: sessionId, lat: loc.lat, lng: loc.lng })
         }
       },
-      (err) => { if (err.code === err.PERMISSION_DENIED) setGpsStatus('denied') },
-      { enableHighAccuracy: true, maximumAge: 5000 }
+      (err) => {
+        console.error('GPS watch error:', err)
+        if (err.code === err.PERMISSION_DENIED) setGpsStatus('denied')
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
     )
   }
 
@@ -109,10 +126,19 @@ export default function DriverMapPage() {
         .select().single()
       if (error) throw error
       await supabase.from('service_days').update({ status: 'in_progress' }).eq('id', serviceId)
+
+      // Send first location immediately with current known position
+      if (myLocation) {
+        await supabase.from('location_updates').insert({
+          tracking_session_id: session.id, lat: myLocation.lat, lng: myLocation.lng,
+        })
+        lastSentRef.current = Date.now()
+      }
+
       setTrackingSessionId(session.id)
       setIsTracking(true)
       startWatching(session.id)
-      toast('Viaje iniciado', 'success')
+      toast('Viaje iniciado — compartiendo ubicación', 'success')
     } catch (err: any) { toast(err.message, 'error') }
     finally { setActionLoading(false) }
   }
